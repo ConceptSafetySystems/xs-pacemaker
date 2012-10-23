@@ -1,0 +1,375 @@
+#!/bin/sh
+#
+# Author:      Andrew Eross (angrygreenfrogs@gmail.com)
+# License:     GNU General Public License (GPL)
+#
+#   Based upon the "Xen" agent from http://linux-ha.org
+#
+#   Intended to be run directly on the XenServer dom0 (assumes VMs are on the local machine and local 'xe' command is present)
+#
+#   Install:
+#   wget -O /usr/bin/timeout http://www.bashcookbook.com/bashinfo/source/bash-4.0/examples/scripts/timeout3
+#   chmod +x /usr/bin/timeout
+#   mkdir /usr/lib/ocf/resource.d/locatrix
+#   Download this script to /usr/lib/ocf/resource.d/locatrix/XenServerVM
+#   chmod 755 /usr/lib/ocf/resource.d/locatrix/XenServerVM
+#
+#   Test:
+#   debug=true creates /tmp/xenservervm.log with debug messages
+#   ocf-tester -n test -o vm_name=dbm -o debug=true /usr/lib/ocf/resource.d/locatrix/XenServerVM
+#   ocf-tester -n test -o vm_name=dbm -o debug=true -o shutdown_timeout=100 /usr/lib/ocf/resource.d/locatrix/XenServerVM
+#
+#   Resource Agent for the XenServer Hypervisor.
+#   Manages XenServer virtual machine instances by
+#   mapping cluster resource start and stop  
+#   to xe vm-start and vm-shutdown, respectively.
+#
+#   usage: $0  {start|stop|status|monitor|validate-all|meta-data}
+#
+#   OCF parameters are as below:
+#       OCF_RESKEY_vm_name: Name of the VM (e.g the name-label from this list: "xe vm-list is-control-domain=false params=name-label")
+#       OCF_RESKEY_debug: Enables a debug file /tmp/xenservervm.log that will contain helpful information about the operations being performed
+
+#######################################################################
+# Initialization:
+
+: ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
+. ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+
+#######################################################################
+
+usage() {
+    cat <<EOT
+usage: $0 {start|stop|status|monitor|validate-all|meta-data}
+EOT
+}
+
+meta_data() {
+    cat <<END
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="XenServerVM">
+<version>1.0</version>
+
+<longdesc lang="en">
+Resource Agent for the XenServer Hypervisor.
+Manages XenServer virtual machine instances by
+mapping cluster resource start and stop  
+to xe vm-start and vm-shutdown, respectively.
+</longdesc>
+
+<shortdesc lang="en">Manages XenServer VMs (DomUs)</shortdesc>
+
+<parameters>
+
+<parameter name="vm_name" unique="0" required="1">
+<longdesc lang="en">
+Name of the VM (e.g the name-label from this list: xe vm-list is-control-domain=false params=name-label)
+</longdesc>
+<shortdesc lang="en">XenServer VM name-label</shortdesc>
+<content type="string" default="" />
+</parameter>
+<parameter name="shutdown_timeout">
+<longdesc lang="en">
+The XenServerVM agent will first try an orderly shutdown using xe vm-shutdown.
+Should this not succeed within this timeout, the agent will escalate to
+xe vm-shutdown --force, forcibly shutting down the VM.
+
+If this is not set, it will default to two-third of the stop action
+timeout.
+
+The stop action timeout looks like this in the crm config:
+op stop interval="0" timeout="100s"
+
+Setting this value to 0 forces an immediate shutdown.
+
+</longdesc>
+<shortdesc lang="en">Shutdown escalation timeout</shortdesc>
+<content type="string" default="" />
+</parameter>
+<parameter name="debug" unique="0" required="0">
+<longdesc lang="en">
+Enables a debug file /tmp/xenservervm.log that will contain helpful information about the operations being performed
+</longdesc>
+<shortdesc lang="en">Enable debug file</shortdesc>
+<content type="string" default="" />
+</parameter>
+</parameters>
+
+<actions>
+<action name="start" timeout="120" />
+<action name="stop" timeout="240" />
+<action name="monitor" depth="0" timeout="30" interval="10" />
+<action name="meta-data" timeout="5" />
+<action name="validate-all" timeout="5" />
+</actions>
+</resource-agent>
+END
+}
+
+XenServerVM_Status() {
+     local vm="$1"
+     xe vm-list name-label="${vm}" params=power-state | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g' | grep running 2>/dev/null
+     if [ $? -ne 0 ]; then
+        XenServerVM_debug "XenServerVM_Status: ${vm} not running"
+        return $OCF_NOT_RUNNING
+     else
+        XenServerVM_debug "XenServerVM_Status: ${vm} running"
+        return $OCF_SUCCESS
+     fi
+}
+
+XenServerVM_List_all() {
+    xe vm-list is-control-domain=false params=name-label | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'
+}
+
+XenServerVM_List_running() {
+    ALL_VMS=`XenServerVM_List_all`
+    for VM in ${ALL_VMS}; do
+        if XenServerVM_Status "${VM}"; then
+            echo "${VM} "
+        fi
+    done
+}
+
+XenServerVM_Count_running() {
+    XenServerVM_List_running | wc -w
+}
+
+XenServerVM_Monitor() {
+    XenServerVM_Status ${VM_NAME}
+    rc=$?
+    if [ $rc -ne ${OCF_SUCCESS} ]; then
+        XenServerVM_debug "XenServerVM_Monitor: not success: ${rc}"
+        return $rc
+    fi
+    XenServerVM_debug "XenServerVM_Monitor: success"
+    return ${OCF_SUCCESS}
+}
+
+XenServerVM_Start() {
+  if XenServerVM_Status ${VM_NAME}; then
+    XenServerVM_debug "XenServerVM_Start: ${VM_NAME} already running."
+    ocf_log info "XenServer VM ${VM_NAME} already running."
+    return ${OCF_SUCCESS}
+  fi
+
+  XenServerVM_debug "XenServerVM_Start: xe vm-start name-label=${VM_NAME}"
+  result=`xe vm-start name-label=${VM_NAME}`
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    XenServerVM_debug "XenServerVM_Start: vm-start failed result ${result} returned ${rc}"
+    return ${OCF_ERR_GENERIC}
+  fi
+  while sleep 1; do
+    XenServerVM_Monitor && return ${OCF_SUCCESS}
+  done
+}
+
+XenServerVM_vm_stop() {
+    local vm="$1"
+    local timeout
+    local start=`date +'%s'`
+
+    if [ -n "${OCF_RESKEY_shutdown_timeout}" ]; then
+      timeout=${OCF_RESKEY_shutdown_timeout}
+    elif [ -n "${OCF_RESKEY_CRM_meta_timeout}" ]; then
+      # Allow 2/3 of the action timeout for the orderly shutdown
+      # (The origin unit is ms, hence the conversion)
+      timeout=$((OCF_RESKEY_CRM_meta_timeout/1500))
+    else
+      timeout=60
+    fi
+    
+    XenServerVM_debug "XenServerVM_vm_stop timeout $timeout"
+    
+    # try an orderly shutdown
+    if [ "${timeout}" -gt 0 ]; then
+        XenServerVM_debug "XenServerVM_vm_stop: Trying clean shutdown"
+        # will attempt a clean shutdown
+        # will time-out that command if it hangs and kill the task
+        XenServerVM_clean_shutdown_with_task_kill "${vm}" ${timeout}
+        
+        # however if that command returns success and the machine is still 'pending'
+        # then until we run out of time we'll let it try to shutdown
+        if XenServerVM_check_pending_shutdown "${vm}" == 0; then
+            XenServerVM_debug "XenServerVM_vm_stop: check pending returned 0, waiting"
+            
+            # Account for the time burned using the 'timeout' command if applicable
+            local now=`date +'%s'`
+            local delta=$((now-start))
+            XenServerVM_debug "Delta ${delta} seconds, timeout ${timeout}"
+            timeout=$((timeout-delta))
+            XenServerVM_debug "Minus delta timeout is now ${timeout}"
+            
+            # give it time to complete..
+            # this block may technically not be necessary if the above always
+            # waits to return until the vm is shutdown, but I'm not sure of that
+            while XenServerVM_Status ${vm} && [ "${timeout}" -gt 0 ]; do
+                XenServerVM_debug "XenServerVM_vm_stop: ${vm} still not stopped. Waiting..."
+                ocf_log debug "${vm} still not stopped. Waiting..."
+                timeout=$((timeout-1))
+                sleep 1
+            done
+            
+            # check if we were waiting for a pending shutdown and kill it
+            XenServerVM_kill_pending_shutdown "${vm}"
+        fi
+    fi
+    
+    # Note: This does not give up. stop isn't allowed to to fail.
+    # If it fails, stop will eventually timeout.
+    # This is the correct behaviour.
+    while XenServerVM_Status "${vm}"; do
+        XenServerVM_debug "XenServerVM_vm_stop: XenServer VM ${vm} is being forced to shutdown!"
+        ocf_log info "XenServer VM ${vm} is being forced to shutdown!"
+        result=`xe vm-shutdown --force name-label="${vm}"`
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            XenServerVM_debug "XenServerVM_vm_stop: vm-shutdown failed result ${result} returned ${rc}"
+        fi
+        sleep 2
+    done
+
+    XenServerVM_debug "XenServerVM_vm_stop: VM ${vm} stopped."
+    ocf_log info "XenServer VM ${vm} stopped."
+}
+
+# check if the specified VM is in the process of a clean shutdown
+XenServerVM_check_pending_shutdown() {
+    local vm="$1"
+
+    # will return the vm's name-label if this is true, e.g. "dbm"
+    pending=`xe vm-list params=name-label current-operations=clean_shutdown name-label="${vm}" | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+
+    if [ "${vm}" == "${pending}" ]; then
+        XenServerVM_debug "XenServerVM_check_pending_shutdown: found pending clean shutdown"
+        return 0
+    fi
+    
+    return 1
+}
+
+XenServerVM_clean_shutdown_with_task_kill() {
+    local vm="$1"
+    local time=$2
+    # this is because shutdown sometimes seems to hang, so if it does, then cancel the task
+    XenServerVM_debug "Running timeout -t ${time} xe vm-shutdown name-label=\"${vm}\""
+    $result=`timeout -t $time xe vm-shutdown name-label="${vm}"`
+    rc = $?
+    XenServerVM_debug "Timeout returned ${rc} with result ${result}"
+    if [ $rc -ne 0 ]; then
+        XenServerVM_debug "vm-shutdown failed, going to kill task"
+        XenServerVM_kill_pending_shutdown "${vm}"
+    fi
+}
+
+XenServerVM_kill_pending_shutdown() {
+    local vm="$1"
+    # small amount of protection to check that the VM is indeed pending
+    if XenServerVM_check_pending_shutdown "${vm}" == 0; then
+        XenServerVM_debug "check_pending_shutdown returned true" 
+        # unfortunately this check here assumes this is the only VM being shutdown right now, if that's not the case this could cancel the wrong
+        # task!
+        TASKUUID=`xe task-list name-label=VM.clean_shutdown params=uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+        if [ $? == 0 ]; then
+            if [ x"${TASKUUID}" != x ]; then
+                XenServerVM_debug "Running xe task-cancel uuid=$TASKUUID"
+                xe task-cancel uuid=$TASKUUID
+                
+                # if the cancel doesn't work, there's no point in continuing, the whole process will get stuck
+                # but then the overall timeout will kick in, so this is intentional, same as per XenServerVM_vm_stop
+                while XenServerVM_check_pending_shutdown "${vm}"; do
+                    XenServerVM_debug "XenServer VM waiting for shutdown task ${TASKUUID} for ${vm} to cancel"
+                    ocf_log info "XenServer VM waiting for shutdown task ${TASKUUID} for ${vm} to cancel"
+                    sleep 1
+                done
+            fi
+        fi
+    fi
+}
+
+XenServerVM_Stop() {
+  local vm
+  if XenServerVM_Status "${VM_NAME}"; then
+    vm="${VM_NAME}"
+  else
+    XenServerVM_debug "XenServerVM_Stop: ${VM_NAME} already stopped."
+    ocf_log info "XenServer VM $VM_NAME already stopped." 
+  fi
+
+  if [ x"${vm}" != x ]; then
+    XenServerVM_debug "XenServerVM_Stop: stopping ${vm}"
+    XenServerVM_vm_stop "${vm}"
+  fi
+
+  return $OCF_SUCCESS
+}
+
+XenServerVM_Validate_All() {
+  return $OCF_SUCCESS
+}
+
+XenServerVM_debug() {
+    if [ -n "${OCF_RESKEY_debug}" ]; then
+        echo "$1" >> /tmp/xenservervm.log
+    fi
+}
+
+if [ $# -ne 1 ]; then
+  usage
+  exit $OCF_ERR_ARGS
+fi
+
+case $1 in
+  meta-data)    meta_data
+            exit $OCF_SUCCESS
+            ;;
+  usage)        usage
+            exit $OCF_SUCCESS
+            ;;
+esac
+
+if [ x"${OCF_RESKEY_vm_name}" != x ]; then
+    VM_NAME="${OCF_RESKEY_vm_name}"
+else
+    ocf_log err "Please set vm_name to the name-label of the VM to be managed"
+    exit $OCF_ERR_CONFIGURED
+fi
+
+# Moved these here to accommodate the OCF tester
+# "The initial probe for a stopped resource should return 7 even if all binaries are missing"
+case $1 in
+  monitor)          XenServerVM_Monitor
+                    exit $?
+            ;;
+  status)           XenServerVM_Status
+                    exit $?
+            ;;
+  validate-all)     XenServerVM_Validate_All
+                    exit $?
+            ;;
+esac
+
+for binary in xe sed awk wc timeout; do
+    check_binary $binary
+done
+
+if [ -n "$OCF_RESKEY_shutdown_timeout" ]; then
+    ocf_is_decimal "$OCF_RESKEY_shutdown_timeout" || {
+        ocf_log err "shutdown_timeout must be a number" 
+        exit $OCF_ERR_CONFIGURED
+    }
+fi
+
+case $1 in
+  start)            XenServerVM_Start
+            ;;
+  stop)             XenServerVM_Stop
+            ;;
+  *)                usage
+                    exit $OCF_ERR_UNIMPLEMENTED
+            ;;
+esac
+exit $?
+
