@@ -107,7 +107,9 @@ xe vm-param-set other-config:auto_poweroff=false uuid=$UUID
 
 ### DRBD configuration
 
-`vi /etc/drbd.d/global_common.conf`
+Setup DRBD on both nodes
+
+vi /etc/drbd.d/global_common.conf
 	global 
 	{ 
 		usage-count yes; 
@@ -135,11 +137,10 @@ xe vm-param-set other-config:auto_poweroff=false uuid=$UUID
 
 Copy the DRBD configuration to the 2nd node
 
-`scp /etc/drbd.d/global_common.conf root@node2.mydomain:/etc/drbd.d/global_common.conf`
-`drbdadm adjust all`
-
-`chkconfig --level 35 corosync on`
-`/etc/init.d/corosync start`
+	scp /etc/drbd.d/global_common.conf root@node2.mydomain:/etc/drbd.d/global_common.conf
+	drbdadm adjust all
+	chkconfig --level 35 corosync on
+	/etc/init.d/corosync start
 
 ### Setup Pacemaker agents
 
