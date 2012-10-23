@@ -1,0 +1,318 @@
+#!/bin/sh
+#
+# Author:      Andrew Eross (angrygreenfrogs@gmail.com)
+# License:     GNU General Public License (GPL)
+#
+#   Based upon the "Xen" agent from http://linux-ha.org
+#
+#   This agent complements the XenServerVM agent, and the DRBD agents from Linbit (e.g. drbd-pacemaker-8.4.1-1.i386.rpm), to allow you to 
+#   create an HA VM in XenServer.
+#
+#   Intended to be run directly on the XenServer dom0 (assumes local 'xe' command is present)
+#
+#   Install:
+#   wget -O /usr/bin/timeout http://www.bashcookbook.com/bashinfo/source/bash-4.0/examples/scripts/timeout3
+#   chmod +x /usr/bin/timeout
+#   mkdir /usr/lib/ocf/resource.d/locatrix
+#   Download this script to /usr/lib/ocf/resource.d/locatrix/XenServerPBD
+#   chmod 755 /usr/lib/ocf/resource.d/locatrix/XenServerPBD
+#
+#   Test:
+#   debug=true creates /tmp/xenserverpbd.log with debug messages
+#   ocf-tester -n test -o pbd_device=/dev/drbd1 -o sr_meta_data=true -o debug=true /usr/lib/ocf/resource.d/locatrix/XenServerPBD
+#   ocf-tester -n test -o pbd_device=/dev/drbd1 -o debug=true /usr/lib/ocf/resource.d/locatrix/XenServerPBD
+#
+#   Resource Agent for XenServer Hypervisor.
+#   Manages XenServer PBDs. Intended for use with DRBD where you 
+#   want only one XenServer to have a PBD plugged in at a time.
+#   Assumes that you've run these commands on both servers already to introduce the SR and create the PBD:
+#   xe sr-introduce uuid=$SRUUID name-label=DRBD type=lvm
+#   xe pbd-create sr-uuid=$SRUUID host-uuid=$HOSTID device-config:device=/dev/drbd1
+#   
+#   The purpose of this agent is to control which server has this command run on it:
+#   xe pbd-plug uuid=$PBDUUID
+#   
+#   Optionally will backup/restore metadata as well, e.g.:
+#   xe-restore-metadata -y -u $SRUUID
+#
+#   Note: Backup/restore of meta-data is a semi-dangerous thing to do.. recommend trying it yourself from the CLI a few times before automating it here
+#         Also note that it's not required for HA to work. The meta-data can be done once by hand and if you don't change the VM config, then you don't need
+#         to update it. The metadata only needs to be updated on each machine when you've made a change to the VM's configuration. Last note: restoring meta
+#         data won't override existing VMs. This goes for VMs that are present on one machine and not the other, and also VMs that are present on both.
+#         E.g. general rule is it simply won't override anything. In fact for a change to get restored across, you have to delete the existing HA VM first, then 
+#         restore it.
+#
+#
+#   usage: $0  {start|stop|status|monitor|validate-all|meta-data}
+#
+#   OCF parameters are as below:
+#       OCF_RESKEY_pbd_device: Name of the device to use to identify the PBD (e.g "/dev/drbd1"), this is the same as the device-config:device parameter for the PBD
+#       OCF_RESKEY_sr_meta_data: Backup/restore meta data from the SR as well
+#       OCF_RESKEY_debug: Enables a debug file /tmp/xenserverpbd.log that will contain helpful information about the operations being performed
+
+#######################################################################
+# Initialization:
+
+: ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
+. ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+
+#######################################################################
+
+usage() {
+    cat <<EOT
+usage: $0 {start|stop|status|monitor|validate-all|meta-data}
+EOT
+}
+
+meta_data() {
+    cat <<END
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="XenServerPBD">
+<version>1.0</version>
+
+<longdesc lang="en">
+Resource Agent for XenServer Hypervisor.
+Manages XenServer PBDs. Intended for use with DRBD where you 
+want only one XenServer to have an active/passive SR's PBD plugged in to one server at a time.
+
+Assumes that you've run these commands on both servers already to introduce the SR and create the PBD:
+xe sr-introduce uuid=$SRUUID name-label=DRBD type=lvm
+xe pbd-create sr-uuid=$SRUUID host-uuid=$HOSTID device-config:device=/dev/drbd1
+
+The purpose of this agent is to control which server has this command run on it:
+xe pbd-plug uuid=$PBDUUID
+
+Optionally will backup/restore metadata as well, e.g.:
+xe-restore-metadata -y -u $SRUUID
+</longdesc>
+
+<shortdesc lang="en">Manages XenServer PBDs (physical block devices)</shortdesc>
+
+<parameters>
+
+<parameter name="pbd_device" unique="0" required="1">
+<longdesc lang="en">
+Name of the device to use to identify the PBD (e.g "/dev/drbd1"), this is the same as the device-config:device parameter for the PBD
+</longdesc>
+<shortdesc lang="en">PBD logical device name</shortdesc>
+<content type="string" default="" />
+</parameter>
+<parameter name="sr_meta_data" unique="0" required="0">
+<longdesc lang="en">
+Backup/restore meta data from the SR as well
+
+When the PBD is plugged in, this will also run:
+xe-restore-metadata -y -u $SRUUID
+
+When the PBD is unplugged, it will run:
+xe-backup-metadata -c -u $SRUUID
+</longdesc>
+<shortdesc lang="en">Backup/restore meta data from the SR as well</shortdesc>
+<content type="string" default="" />
+</parameter>
+<parameter name="debug" unique="0" required="0">
+<longdesc lang="en">
+Enables a debug file /tmp/xenserverpbd.log that will contain helpful information about the operations being performed
+</longdesc>
+<shortdesc lang="en">Enable debug file</shortdesc>
+<content type="string" default="" />
+</parameter>
+</parameters>
+
+<actions>
+<action name="start" timeout="60" />
+<action name="stop" timeout="40" />
+<action name="monitor" depth="0" timeout="30" interval="10" />
+<action name="meta-data" timeout="5" />
+<action name="validate-all" timeout="5" />
+</actions>
+</resource-agent>
+END
+}
+
+XenServerPBD_Status() {
+     xe pbd-list device-config:device=${PBD_DEVICE} params=currently-attached | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g' | grep true 2>/dev/null
+     if [ $? -ne 0 ]; then
+        XenServerPBD_debug "XenServerPBD_Status: ${PBD_DEVICE} not attached"
+        return $OCF_NOT_RUNNING
+     else
+        XenServerPBD_debug "XenServerPBD_Status: ${PBD_DEVICE} attached"
+        return $OCF_SUCCESS
+     fi
+}
+
+XenServerPBD_Monitor() {
+    XenServerPBD_Status
+    rc=$?
+    if [ $rc -ne $OCF_SUCCESS ]; then
+        XenServerPBD_debug "XenServerPBD_Monitor: not OCF_SUCCESS: $rc"
+        return $rc
+    fi
+    XenServerPBD_debug "XenServerPBD_Monitor: OCF_SUCCESS"
+    return ${OCF_SUCCESS}
+}
+
+XenServerPBD_Start() {
+  if XenServerPBD_Status; then
+    XenServerPBD_debug "XenServerPBD_Start: $PBD_DEVICE already attached."
+    ocf_log info "XenServer VM $PBD_DEVICE already attached."
+    return $OCF_SUCCESS
+  fi
+
+  XenServerPBD_debug "XenServerPBD_Start: Running xe pbd-plug uuid=${PBDUUID}"
+  
+  result=`xe pbd-plug uuid=${PBDUUID} 2>&1`
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    XenServerPBD_debug "XenServerPBD_Start: pbd-plug failed returned $rc and $result"
+    return $OCF_ERR_GENERIC
+  fi
+  
+  # If the option is enabled, restore the VM data from the SR
+  XenServerPBD_RestoreMetaData
+  
+  XenServerPBD_Status
+  rc=$?
+  
+  return $rc
+}
+
+XenServerPBD_BackupMetaData() {
+    if [ -n "$OCF_RESKEY_sr_meta_data" ]; then
+        XenServerPBD_debug "Running xe-backup-metadata -c -u ${SRUUID}"
+        result=`/opt/xensource/bin/xe-backup-metadata -c -u ${SRUUID} 2>&1`
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            XenServerPBD_debug "XenServerPBD_BackupMetaData: Failed $result, continuing anyways.."
+        fi
+    fi    
+}
+
+XenServerPBD_RestoreMetaData() {
+    if [ -n "$OCF_RESKEY_sr_meta_data" ]; then
+        XenServerPBD_debug "Running xe-restore-metadata -y -u ${SRUUID}"
+        result=`/opt/xensource/bin/xe-restore-metadata -y -u ${SRUUID} 2>&1`
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            XenServerPBD_debug "XenServerPBD_RestoreMetaData: Failed $result, continuing anyways.."
+        fi
+    fi 
+}
+
+XenServerPBD_Stop() { 
+  if XenServerPBD_Status; then
+    XenServerPBD_debug "XenServerPBD_Stop: detaching ${PBD_DEVICE}"
+    # Note: This does not give up. stop isn't allowed to to fail.
+    # If it fails, stop will eventually timeout.
+    # This is the correct behaviour.
+    
+    # If the option is enabled, backup the VM data to the SR
+    XenServerPBD_BackupMetaData
+    
+    XenServerPBD_debug "XenServerPBD_Stop: Running xe pbd-unplug uuid=${PBDUUID}"
+    ocf_log info "XenServer ${PBD_DEVICE} (${PBDUUID}) is being unplugged"
+
+    # Unplug the PBD    
+    result=`xe pbd-unplug uuid=${PBDUUID} 2>&1`
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        XenServerPBD_debug "XenServerPBD_Start: pbd-unplug failed returned $rc and $result"
+        return $OCF_ERR_GENERIC
+    fi
+        
+    if XenServerPBD_Status; then        
+        XenServerPBD_debug "XenServerPBD_Stop: PBD ${PBD_DEVICE} still not detached."
+        return $OCF_ERR_GENERIC
+    fi
+
+    XenServerPBD_debug "XenServerPBD_Stop: PBD ${PBD_DEVICE} detached."
+    ocf_log info "XenServer PBD ${PBD_DEVICE} detached."
+  else
+    XenServerPBD_debug "XenServerPBD_Stop: $PBD_DEVICE already detached."
+    ocf_log info "XenServer VM $PBD_DEVICE already detached." 
+  fi
+
+  return $OCF_SUCCESS
+}
+
+XenServerPBD_Validate_All() {
+  return $OCF_SUCCESS
+}
+
+XenServerPBD_debug() {
+    if [ -n "$OCF_RESKEY_debug" ]; then
+        echo "$1" >> /tmp/xenserverpbd.log
+    fi
+}
+ 
+if [ $# -ne 1 ]; then
+  usage
+  exit $OCF_ERR_ARGS
+fi
+
+case $1 in
+  meta-data)    meta_data
+            exit $OCF_SUCCESS
+            ;;
+  usage)        usage
+            exit $OCF_SUCCESS
+            ;;
+esac
+
+if [ x"${OCF_RESKEY_pbd_device}" != x ]; then
+    PBD_DEVICE="${OCF_RESKEY_pbd_device}"
+else
+    ocf_log err "Please set pbd_device to the logical device of the PBD (e.g. /dev/drbd1)"
+    exit $OCF_ERR_CONFIGURED
+fi
+
+PBDUUID=`xe pbd-list device-config:device=$PBD_DEVICE params=uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+
+if [ x"${PBDUUID}" == x ]; then
+    ocf_log err "xe pbd-list doesn't contain a PBD matching the pbd_device ${PBD_DEVICE}"
+    XenServerPBD_debug "xe pbd-list doesn't contain a PBD matching the pbd_device ${PBD_DEVICE}"
+    exit $OCF_NOT_RUNNING
+fi
+
+XenServerPBD_debug "Found PBD UUID ${PBDUUID}"
+
+SRUUID=`xe pbd-list device-config:device=$PBD_DEVICE params=sr-uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+
+if [ x"${SRUUID}" == x ]; then
+    ocf_log err "xe pbd-list doesn't contain a SR with the PBD matching the pbd_device ${PBD_DEVICE}"
+    XenServerPBD_debug "xe pbd-list doesn't contain a SR with the PBD matching the pbd_device ${PBD_DEVICE}"
+    exit $OCF_NOT_RUNNING
+fi
+
+XenServerPBD_debug "Found SR UUID ${SRUUID}"
+
+# Moved these here to accommodate the OCF tester
+# "The initial probe for a detached resource should return 7 even if all binaries are missing"
+case $1 in
+  monitor)          XenServerPBD_Monitor
+                    exit $?
+            ;;
+  status)           XenServerPBD_Status
+                    exit $?
+            ;;
+  validate-all)     XenServerPBD_Validate_All
+                    exit $?
+            ;;
+esac
+
+for binary in xe sed awk wc; do
+    check_binary $binary
+done
+
+case $1 in
+  start)            XenServerPBD_Start
+            ;;
+  stop)             XenServerPBD_Stop
+            ;;
+  *)                usage
+                    exit $OCF_ERR_UNIMPLEMENTED
+            ;;
+esac
+exit $?
+
