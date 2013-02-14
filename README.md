@@ -11,8 +11,12 @@ XenServerVM - Monitors and controls shutdown/start-up of a VM
 
 These plug-ins were derived from the Xen resource agent that comes with Pacemaker.
 
-Full installation on XenServer 6
+Full installation on XenServer 6.1
 --------------------
+
+NOTE: uname -a on your XenServer should return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use our DRBD RPMs.
+
+We provide a few other RPM versions for older XenServers as well: http://download.locatrix.com/drbd
 
 The below uses "node1.mydomain" and "node2.mydomain" to represent the two nodes.
 
@@ -21,23 +25,23 @@ The below uses "node1.mydomain" and "node2.mydomain" to represent the two nodes.
 `wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo`
 
 ### Install DRBD Pacemaker plug-ins
-`wget http://download.locatrix.com/drbd/drbd-xen-8.4.1-1.i386.rpm`
-`wget http://download.locatrix.com/drbd/drbd-pacemaker-8.4.1-1.i386.rpm`
-`wget http://download.locatrix.com/drbd/drbd-heartbeat-8.4.1-1.i386.rpm`
+`wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-xen-8.4.3-2.i386.rpm`
+`wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-pacemaker-8.4.3-2.i386.rpm`
+`wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-heartbeat-8.4.3-2.i386.rpm`
 
-`rpm -i drbd-heartbeat-8.4.1-1.i386.rpm`
+`rpm -i drbd-heartbeat-8.4.3-2.i386.rpm`
 
 Installs:
 * /etc/ha.d/resource.d/drbddisk
 * /etc/ha.d/resource.d/drbdupper
 * /usr/share/man/man8/drbddisk.8.gz
 
-`rpm -i drbd-xen-8.4.1-1.i386.rpm`
+`rpm -i drbd-xen-8.4.3-2.i386.rpm`
 
 Installs:
 * /etc/xen/scripts/block-drbd
 
-`rpm -i drbd-pacemaker-8.4.1-1.i386.rpm`
+`rpm -i drbd-pacemaker-8.4.3-2.i386.rpm`
 
 Installs:
 * /usr/lib/drbd/crm-fence-peer.sh
