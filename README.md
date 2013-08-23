@@ -182,13 +182,10 @@ Ensure the 'on' keywords below must match what "hostname" returns on the servers
 		}
 		disk 
 		{ 
-			fencing resource-only;
 		}
 		handlers 
 		{
 			split-brain "/usr/lib/drbd/notify-split-brain.sh"; 
-			fence-peer "/usr/lib/drbd/crm-fence-peer.sh";
-			after-resync-target "/usr/lib/drbd/crm-unfence-peer.sh";
 		}
 	}
 	
@@ -314,6 +311,14 @@ NOTE: I wrote a wiki article a while ago explaining how to install NRPE on XCP o
 	sed -i -e "s/enabled=1/enabled=0/" /etc/yum.repos.d/Citrix.repo
 	yum install -y pacemaker corosync heartbeat
 	chkconfig drbd off
+	
+	wget -O /usr/bin/timeout http://www.bashcookbook.com/bashinfo/source/bash-4.0/examples/scripts/timeout3
+	chmod +x /usr/bin/timeout
+	mkdir /usr/lib/ocf/resource.d/locatrix
+	wget -O/usr/lib/ocf/resource.d/locatrix/XenServerPBD https://raw.github.com/locatrix/xs-pacemaker/master/XenServerPBD
+	chmod 755 /usr/lib/ocf/resource.d/locatrix/XenServerPBD
+	wget -O/usr/lib/ocf/resource.d/locatrix/XenServerVM https://raw.github.com/locatrix/xs-pacemaker/master/XenServerVM
+	chmod 755 /usr/lib/ocf/resource.d/locatrix/XenServerVM
 
 Installs:
 * /usr/lib/drbd/crm-fence-peer.sh
@@ -378,6 +383,32 @@ Set corosync to start at boot
 
 	chkconfig --level 35 corosync on
 	/etc/init.d/corosync start
+	
+Configure DRBD for Pacemaker
+
+`vi /etc/drbd.d/global_common.conf`
+
+	#http://www.drbd.org/users-guide/s-pacemaker-fencing.html
+	resource <resource> {
+	  disk {
+		fencing resource-only;
+		...
+	  }
+	  handlers {
+		fence-peer "/usr/lib/drbd/crm-fence-peer.sh";
+		after-resync-target "/usr/lib/drbd/crm-unfence-peer.sh";
+		...
+	  }
+	  ...
+	}
+
+Copy the configuration to the other server
+
+`scp /etc/drbd.d/global_common.conf root@pmx02.eightmile.locatrix.net:/etc/drbd.d/global_common.conf`
+
+Live-update DRBD
+
+`drbdadm adjust all`
 
 #### Setup Pacemaker agents
 
