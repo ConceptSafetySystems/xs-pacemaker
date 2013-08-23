@@ -22,7 +22,7 @@ We provide some DRBD RPMs compiled for various versions of XenServer: http://dow
 
 Note: The RPM must exactly match your XenServer version - otherwise you can build it yourself with the Citrix XenServer DDK VM.
 
-Full Installation Instructions
+Full Installation Instructions (DRBD+Pacemaker+Agents)
 --------------------
 
 ### DRBD RPMs for XenServer 6.1.0
@@ -36,7 +36,9 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.7
 	rpm -i drbd-pacemaker-8.4.3-2.i386.rpm
 
 #### Patch XenServer 6.1.0 shutdown script
-This fixes a race condition I found because of xapi-domains shutdown that calls  `/opt/xensource/libexec/shutdown`. This was shutting down VMs and then heartbeat was restarting them which caused some confusion during reboot.
+This fixes a race condition I found because of xapi-domains shutdown that calls  `/opt/xensource/libexec/shutdown`. This was shutting down VMs and then heartbeat was restarting them which caused some confusion during reboot. This patch adds support for the "auto_poweroff" VM flag to have the script ignore flagged VMs.
+
+NOTE: This is NOT needed for XenServer 6.2.0 since the patch was added into the upstream.
 
 	wget -O /opt/xensource/libexec/shutdown.patch http://download.locatrix.com/pacemaker/shutdown.patch
 	cd /opt/xensource/libexec
@@ -65,7 +67,7 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.8.0.83
 
 ### DRBD Setup for XenServer 6.1.0 or 6.2.0 (those are the ones I've tested)
 
-I found I had drbd bugs with OVS so I had to do this. `drbdadm primary all` kept hanging for me randomly. This changes OVS to the linux network bridge back-end. Hopefully we won't need this some day.
+I found I had DRBD bugs with OVS so I had to do this. `drbdadm primary all` kept hanging for me randomly. This changes OVS to the linux network bridge back-end. Hopefully we won't need this some day.
 
 	xe-switch-network-backend bridge
 	reboot
@@ -441,9 +443,9 @@ Start it up again
 
 #### How to handle VM meta-data
 
-As you're doing the above, you may notice that when you create a VM intially on your primary server, it doesn't magically appear in the VM list on your secondary server even when the SR is plugged in. This is because the VM configuration meta-data (meaning it's name, disk name, CPU, memory, etc, etc) is all stored locally on the server. Sorry, it doesn't get copied automatically to the other server, so we have to do handle that.
+As you're doing the above, you may notice that when you create a VM intially on your primary server, it doesn't magically appear in the VM list on your secondary server even when the SR is plugged in. This is because the VM configuration meta-data (meaning it's name, disk name, CPU, memory, etc, etc) is all stored locally on the server. Sorry, it doesn't get copied automatically to the other server, so we have to handle that.
 
-The lowest risk, best way to handle this at the moment is to manually copy the meta-data whenever you first create the VM or make a change to the config (e.g. increase the memory size).
+The lowest risk way to handle this at the moment is to manually copy the meta-data whenever you first create the VM or make a change to the config (e.g. increase the memory size).
 
 Backup the VM meta-data to a file, then copy the VM config to the secondary
 
@@ -463,9 +465,11 @@ OPTIONAL: Just in case for fail-over I usually backup all of the meta-data to th
 	echo $SRUUID
 	xe-backup-metadata -c -u $SRUUID
 
-There's an accompanying script for restore:
+There's an accompanying script for restore that will restore all the VMs from the SR backup
 
 `xe-restore-metadata`
+
+These scripts are mostly handy in case you want to copy all the VM config data from one server to another or in case of manually handling a restore.
 
 The XenServerPBD agent actually includes an option to allow automatic use of xe-backup-metadata and xe-restore-metadata, however, I consider it to be potentially risky to automate those scripts since they copy ALL the VMs not just the single one you want. In the next version of the agent I plan to remove it and instead implement a process based on the above meta-data import/export.
 
@@ -503,12 +507,16 @@ Now delete the resources
 License
 --------------------
 
-Copyright (c) 2012, Locatrix Communications
+Copyright (c) 2013, Locatrix Communications
+
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 
 Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
 Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
 Neither the name of Locatrix Communications nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
