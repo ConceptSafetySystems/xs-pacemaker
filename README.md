@@ -44,7 +44,7 @@ This fixes a race condition I found because of xapi-domains shutdown that calls 
 	patch -p1 < shutdown.patch
 
 ### DRBD RPMs for XenServer 6.2.0
-NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use our DRBD RPMs.
+NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.8.0.835.170778xen" to use our DRBD RPMs.
 
 	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-8.4.3-2.i386.rpm
 	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-bash-completion-8.4.3-2.i386.rpm
@@ -131,12 +131,15 @@ Create an identical DRBD volume on both servers for storage. This is an example 
 	service lvm start
 
 I recommend trying a reboot now and ensure LVM comes up
+
 `reboot`
 
 Ensure it says available
+
 `lvdisplay`
 
 Ensure the 'on' keywords below must match what "hostname" returns on the servers
+
 `hostname`
 
 #### Setup DRBD configuration
@@ -305,16 +308,15 @@ NOTE: I wrote a wiki article a while ago explaining how to install NRPE on XCP o
 
 	rpm -Uvh http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm
 	wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo
+	sed -i -e "s/enabled=0/enabled=1/" /etc/yum.repos.d/CentOS-Base.repo
+	sed -i -e "s/enabled=1/enabled=0/" /etc/yum.repos.d/Citrix.repo
+	yum install -y pacemaker corosync heartbeat
+	chkconfig drbd off
 
 Installs:
 * /usr/lib/drbd/crm-fence-peer.sh
 * /usr/lib/drbd/crm-unfence-peer.sh
 * /usr/lib/ocf/resource.d/linbit/drbd
-
-	sed -i -e "s/enabled=0/enabled=1/" /etc/yum.repos.d/CentOS-Base.repo
-	sed -i -e "s/enabled=1/enabled=0/" /etc/yum.repos.d/Citrix.repo
-	yum install -y pacemaker corosync heartbeat
-	chkconfig drbd off
 
 #### Disable VM auto-shutdown
 
@@ -425,17 +427,47 @@ Setup the VM agent for a specific VM named "dbm" in this example. Note: Yes, it'
 
 You can shutdown a VM like this:
 	
-Get the name of the VM to shutdown
+Get the name of the VM resource to shutdown
 
 `crm resource status`
 
 Now turn it off. This WILL shutdown the VM. It helps if you have the XenServer tools installed on the VM which makes graceful shutdown easier.
 
-`crm resource stop xs_vm_locatrixcom`
+`crm resource stop xs_vm_dbm`
 
 Start it up again
 
-`crm resource start xs_vm_locatrixcom`
+`crm resource start xs_vm_dbm`
+
+#### How to handle VM meta-data
+
+As you're doing the above, you may notice that when you create a VM intially on your primary server, it doesn't magically appear in the VM list on your secondary server even when the SR is plugged in. This is because the VM configuration meta-data (meaning it's name, disk name, CPU, memory, etc, etc) is all stored locally on the server. Sorry, it doesn't get copied automatically to the other server, so we have to do handle that.
+
+The lowest risk, best way to handle this at the moment is to manually copy the meta-data whenever you first create the VM or make a change to the config (e.g. increase the memory size).
+
+Backup the VM meta-data to a file, then copy the VM config to the secondary
+
+	VMNAME=MYVM
+	SECONDARY=node2.mydomain
+	SEC_PWD=
+	VMUUID=`xe vm-list name-label=$VMNAME params=uuid | awk -F: '{print $2}' | grep -v '^$' | sed 's/^[ ]//g'`
+	xe vm-export vm=$VMUUID filename=./$VMNAME-metadata metadata=true
+	ls -la ./$VMNAME-metadata
+	SEC_SRUUID=`xe -s $SECONDARY -u root -pw $SEC_PWD sr-list name-label=DRBD-SR1 params=uuid | awk -F: '{print $2}' | grep -v '^$' | sed 's/^[ ]//g'`
+	echo $SEC_SRUUID
+	xe -s $SECONDARY -u root -pw $SEC_PWD vm-import filename=./$VMNAME-metadata sr-uuid=$SEC_SRUUID --metadata --preserve --force
+
+OPTIONAL: Just in case for fail-over I usually backup all of the meta-data to the SR using the included script
+
+	SRUUID=`xe sr-list name-label=DRBD-SR1 params=uuid | awk -F: '{print $2}' | grep -v '^$' | sed 's/^[ ]//g'`
+	echo $SRUUID
+	xe-backup-metadata -c -u $SRUUID
+
+There's an accompanying script for restore:
+
+`xe-restore-metadata`
+
+The XenServerPBD agent actually includes an option to allow automatic use of xe-backup-metadata and xe-restore-metadata, however, I consider it to be potentially risky to automate those scripts since they copy ALL the VMs not just the single one you want. In the next version of the agent I plan to remove it and instead implement a process based on the above meta-data import/export.
 
 Helpful stuff
 --------------------
