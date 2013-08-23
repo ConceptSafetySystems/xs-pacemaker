@@ -26,7 +26,7 @@ Note: The RPM must exactly match your XenServer version - otherwise you can buil
 Full Installation Instructions
 --------------------
 
-## DRBD RPMs for XenServer 6.1.0
+### DRBD RPMs for XenServer 6.1.0
 
 NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use these DRBD RPMs.
 	wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-xen-8.4.3-2.i386.rpm
@@ -36,7 +36,7 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.7
 	rpm -i drbd-xen-8.4.3-2.i386.rpm
 	rpm -i drbd-pacemaker-8.4.3-2.i386.rpm
 
-### Patch XenServer 6.1.0 shutdown script
+#### Patch XenServer 6.1.0 shutdown script
 This fixes a race condition I found because of xapi-domains shutdown that calls  /opt/xensource/libexec/shutdown
 This was shutting down VMs and then heartbeat was restarting them which caused some confusion during reboot
 
@@ -45,65 +45,64 @@ This was shutting down VMs and then heartbeat was restarting them which caused s
 `cp shutdown shutdown.orig`
 `patch -p1 < shutdown.patch`
 
-## DRBD RPMs for XenServer 6.2.0
+### DRBD RPMs for XenServer 6.2.0
 NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use our DRBD RPMs.
 
-## DRBD Setup for XenServer 6.1.0 or 6.2.0 (those are the ones I've tested)
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-bash-completion-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-debuginfo-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-heartbeat-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-km-2.6.32.43_0.4.1.xs1.8.0.835.170778xen-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-km-debuginfo-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-pacemaker-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-udev-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-utils-8.4.3-2.i386.rpm
+	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-xen-8.4.3-2.i386.rpm
 
-### Install DRBD
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-bash-completion-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-debuginfo-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-heartbeat-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-km-2.6.32.43_0.4.1.xs1.8.0.835.170778xen-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-km-debuginfo-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-pacemaker-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-udev-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-utils-8.4.3-2.i386.rpm`
-`wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-xen-8.4.3-2.i386.rpm`
+	rpm -i drbd-utils-8.4.3-2.i386.rpm
+	rpm -i drbd-bash-completion-8.4.3-2.i386.rpm
+	rpm -i drbd-udev-8.4.3-2.i386.rpm
+	rpm -i drbd-km-2.6.32.43_0.4.1.xs1.8.0.835.170778xen-8.4.3-2.i386.rpm
+	rpm -q -a | grep drbd
 
-`rpm -i drbd-utils-8.4.3-2.i386.rpm`
-`rpm -i drbd-bash-completion-8.4.3-2.i386.rpm`
-`rpm -i drbd-udev-8.4.3-2.i386.rpm`
-`rpm -i drbd-km-2.6.32.43_0.4.1.xs1.8.0.835.170778xen-8.4.3-2.i386.rpm`
-`rpm -q -a | grep drbd`
+### DRBD Setup for XenServer 6.1.0 or 6.2.0 (those are the ones I've tested)
 
 I found I had drbd bugs with OVS so I had to do this. `drbdadm primary all` kept hanging for me randomly. This changes OVS to the linux network bridge back-end. Hopefully we won't need this some day
 `xe-switch-network-backend bridge`
 
 `reboot`
 
-### Setup a DRBD cross-over cable
+#### Setup a DRBD cross-over cable
 I recommend a direct Gigabit cross-over cable between the 2 servers on a spare NIC. It's not a requirement of course, you just need a connection. Otherwise you can possibly get a split brain situation if the switch power died
 
 Create a network interface for DRBD replication
-# Open up XenCenter
-# Click on the server
-# Select the Networking tab and click the Configure buttom in Management Interfaces
-# Click Add IP Address
+1. Open up XenCenter
+2. Click on the server
+3. Select the Networking tab and click the Configure buttom in Management Interfaces
+4. Click Add IP Address
 `Name: DRBD`
 `IP: 10.0.0.3`
 `netmask: 255.255.255.0`
 `no gateway`
-# OK
+5. OK
 
 Add a hostname and ip address for the x-over network
-vi /etc/hosts
+`vi /etc/hosts`
+
 	10.0.0.3 node1drbd
 	10.0.0.4 node2drbd
 
-### Setup the DRBD volume
+#### Setup the DRBD volume
 Linbit guide section 3.2 explains how to do a setup when you're using a separate hard drive for DRBD. I wanted to use my existing drives only, so this is what I did below.
 
 Also FYI lvm.conf already has a filter for VG_Xen*: `filter = [ "r|/dev/xvd.|", "r|/dev/VG_Xen.*/*|"]`
 
 So that's why I skipped that step from the Linbit guide.
 
-# note PEs free on both servers, pick a common value
+Note PEs free on both servers, pick a common value
 `pvdisplay`
 
-# create an identical DRBD volume on both servers for storage
-# this is an example of what I did
+Create an identical DRBD volume on both servers for storage. This is an example of what I did
 `lvcreate -l 53760 VG_XenStorage-de2c1846-4bf4-83a8-f74e-0bf1d2f10769 -n drdb`
 `lvdisplay`
 
@@ -127,8 +126,9 @@ Ensure it says available
 Ensure the 'on' keywords below must match what "hostname" returns on the servers
 `hostname`
 
-### Setup DRBD configuration
+#### Setup DRBD configuration
 vi /etc/drbd.d/drbd-sr1.res
+
 	resource drbd-sr1 {
 		protocol C;
 
@@ -147,6 +147,7 @@ vi /etc/drbd.d/drbd-sr1.res
 	}
 
 vi /etc/drbd.d/global_common.conf
+
 	global 
 	{ 
 		usage-count yes; 
@@ -173,6 +174,7 @@ vi /etc/drbd.d/global_common.conf
 	}
 	
 vi /usr/lib/drbd/notify.sh
+
 	Comment out this line at the bottom of the file:
 	#echo "$BODY" | mail -s "$SUBJECT" $RECIPIENT
 	
@@ -190,7 +192,7 @@ vi /usr/lib/drbd/notify.sh
 	#Please see http://www.drbd.org/users-guide/s-resolve-split-brain.html for details on doing so."
 	;;
 
-### Create DRBD resources
+#### Create DRBD resources
 
 On both XenServers execute the following
 	drbdadm create-md drbd-sr1
@@ -215,6 +217,7 @@ Run on primary to create the SR
 Take note of the SR UUID this outputs
 
 Now move DRBD to the secondary so we can introduce the SR there as well
+
 	PBDUUID=`xe pbd-list device-config:device=/dev/drbd1 params=uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
 	echo $PBDUUID
 	xe pbd-unplug uuid=$PBDUUID
@@ -222,6 +225,7 @@ Now move DRBD to the secondary so we can introduce the SR there as well
 	cat /proc/drbd
 
 On the secondary server
+
 	drbdadm primary drbd-sr1
 	cat /proc/drbd
 	UUID=<SR UUID FROM ABOVE sr-create command>
@@ -235,6 +239,7 @@ On the secondary server
 	xe pbd-create sr-uuid=$UUID host-uuid=$HOSTID device-config:device=/dev/drbd1
 
 We use Nagios on both servers to monitor DRBD, this is how we setup the NRPE plug-in
+
 	wget --no-check-certificate http://raw.github.com/anchor/nagios-plugin-drbd/master/check_drbd -O /usr/lib/nagios/plugins/check_drbd
 	chmod +x /usr/lib/nagios/plugins/check_drbd
 	vi /etc/nagios/nrpe.cfg
@@ -245,7 +250,7 @@ We use Nagios on both servers to monitor DRBD, this is how we setup the NRPE plu
 
 NOTE: I wrote a wiki article a while ago explaining how to install NRPE on XCP or XenServer (same thing): http://wiki.xen.org/wiki/NagiosXCP
 
-### Install Pacemaker on XenServer
+#### Install Pacemaker on XenServer
 `rpm -Uvh http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm`
 `wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo`
 
@@ -260,19 +265,21 @@ Installs:
 
 `chkconfig drbd off`
 
-### Disable VM auto-shutdown
+#### Disable VM auto-shutdown
 This must be set on every HA VM to ensure that shutdown is handled by Pacemaker instead of the system
 `xe vm-param-set other-config:auto_poweroff=false uuid=$UUID`
 
-### Setup corosync
+#### Setup corosync
 
 Initial Corosync setup for both nodes
+
 	corosync-keygen
 	chown root:root /etc/corosync/authkey
 	chmod 400 /etc/corosync/authkey
 	scp /etc/corosync/authkey root@node2.mydomain:/etc/corosync/authkey
 
 Create the Corosync config on both nodes
+
 	vi /etc/corosync/corosync.conf
 
 	totem {
@@ -311,10 +318,11 @@ Create the Corosync config on both nodes
 	 }
 
 Set corosync to start at boot
+
 	chkconfig --level 35 corosync on
 	/etc/init.d/corosync start
 
-### Setup Pacemaker agents
+#### Setup Pacemaker agents
 
 	crm configure property stonith-enabled="false"
 	crm configure property no-quorum-policy=ignore
