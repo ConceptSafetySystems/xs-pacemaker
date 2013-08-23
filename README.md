@@ -6,18 +6,17 @@ XenServer plug-ins for Pacemaker
 We've written a pair of plug-ins for Pacemaker to help create an automatically redundant active/passive pair of XenServers VMs using a DRBD backend.
 
 This includes two new Pacemaker resource management agents:
-XenServerPBD - Monitors and controls plug-in/un-plug of the storage SR/PBD
-XenServerVM - Monitors and controls shutdown/start-up of a VM
+* XenServerPBD - Monitors and controls plug-in/un-plug of the storage SR/PBD
+* XenServerVM - Monitors and controls shutdown/start-up of a VM
 
 These plug-ins were derived from the Xen resource agent that comes with Pacemaker.
 
 The idea behind these plug-ins is to let you create a Primary/Secondary DRBD back-end shared between 2 servers that is automatically managed by Pacemaker in case of fail-over.
 
-The DRBD back-end is managed by the existing DRBD Pacemaker agent.
-
-The XenServerPBD agent will then setup the SR on the master.
-
-Finally the XenServerVM agent will start/stop the individual VMs themselves.
+In short:
+* The DRBD back-end is managed by the existing DRBD Pacemaker agent.
+* The XenServerPBD agent will then setup the SR on the master.
+* Finally the XenServerVM agent will start/stop the individual VMs themselves.
 
 We provide some DRBD RPMs compiled for various versions of XenServer: http://download.locatrix.com/drbd
 
@@ -27,8 +26,8 @@ Full Installation Instructions
 --------------------
 
 ### DRBD RPMs for XenServer 6.1.0
-
 NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use these DRBD RPMs.
+
 	wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-xen-8.4.3-2.i386.rpm
 	wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-pacemaker-8.4.3-2.i386.rpm
 	wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-heartbeat-8.4.3-2.i386.rpm
@@ -40,10 +39,10 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.7
 This fixes a race condition I found because of xapi-domains shutdown that calls  /opt/xensource/libexec/shutdown
 This was shutting down VMs and then heartbeat was restarting them which caused some confusion during reboot
 
-`wget -O /opt/xensource/libexec/shutdown.patch http://download.locatrix.com/pacemaker/shutdown.patch`
-`cd /opt/xensource/libexec`
-`cp shutdown shutdown.orig`
-`patch -p1 < shutdown.patch`
+	wget -O /opt/xensource/libexec/shutdown.patch http://download.locatrix.com/pacemaker/shutdown.patch
+	cd /opt/xensource/libexec
+	cp shutdown shutdown.orig
+	patch -p1 < shutdown.patch
 
 ### DRBD RPMs for XenServer 6.2.0
 NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use our DRBD RPMs.
@@ -67,26 +66,33 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.7
 
 ### DRBD Setup for XenServer 6.1.0 or 6.2.0 (those are the ones I've tested)
 
-I found I had drbd bugs with OVS so I had to do this. `drbdadm primary all` kept hanging for me randomly. This changes OVS to the linux network bridge back-end. Hopefully we won't need this some day
-`xe-switch-network-backend bridge`
+I found I had drbd bugs with OVS so I had to do this. `drbdadm primary all` kept hanging for me randomly. This changes OVS to the linux network bridge back-end. Hopefully we won't need this some day.
 
-`reboot`
+	xe-switch-network-backend bridge
+	reboot
 
 #### Setup a DRBD cross-over cable
 I recommend a direct Gigabit cross-over cable between the 2 servers on a spare NIC. It's not a requirement of course, you just need a connection. Otherwise you can possibly get a split brain situation if the switch power died
 
 Create a network interface for DRBD replication
+
 1. Open up XenCenter
+
 2. Click on the server
+
 3. Select the Networking tab and click the Configure buttom in Management Interfaces
+
 4. Click Add IP Address
-`Name: DRBD`
-`IP: 10.0.0.3`
-`netmask: 255.255.255.0`
-`no gateway`
+
+	Name: DRBD
+	IP: 10.0.0.3
+	netmask: 255.255.255.0
+	no gateway
+
 5. OK
 
 Add a hostname and ip address for the x-over network
+
 `vi /etc/hosts`
 
 	10.0.0.3 node1drbd
@@ -100,14 +106,18 @@ Also FYI lvm.conf already has a filter for VG_Xen*: `filter = [ "r|/dev/xvd.|", 
 So that's why I skipped that step from the Linbit guide.
 
 Note PEs free on both servers, pick a common value
+
 `pvdisplay`
 
 Create an identical DRBD volume on both servers for storage. This is an example of what I did
+
 `lvcreate -l 53760 VG_XenStorage-de2c1846-4bf4-83a8-f74e-0bf1d2f10769 -n drdb`
 `lvdisplay`
 
 `vi /etc/lvm/lvm.conf`
+
 	write_cache_state = 0
+
 `rm /etc/lvm/cache/.cache`
 
 `cd /etc/init.d`
@@ -127,7 +137,8 @@ Ensure the 'on' keywords below must match what "hostname" returns on the servers
 `hostname`
 
 #### Setup DRBD configuration
-vi /etc/drbd.d/drbd-sr1.res
+
+`vi /etc/drbd.d/drbd-sr1.res`
 
 	resource drbd-sr1 {
 		protocol C;
@@ -146,7 +157,7 @@ vi /etc/drbd.d/drbd-sr1.res
 		}
 	}
 
-vi /etc/drbd.d/global_common.conf
+`vi /etc/drbd.d/global_common.conf`
 
 	global 
 	{ 
@@ -173,7 +184,7 @@ vi /etc/drbd.d/global_common.conf
 		}
 	}
 	
-vi /usr/lib/drbd/notify.sh
+`vi /usr/lib/drbd/notify.sh`
 
 	Comment out this line at the bottom of the file:
 	#echo "$BODY" | mail -s "$SUBJECT" $RECIPIENT
@@ -195,23 +206,29 @@ vi /usr/lib/drbd/notify.sh
 #### Create DRBD resources
 
 On both XenServers execute the following
+
 	drbdadm create-md drbd-sr1
 	modprobe drbd
 	drbdadm up drbd-sr1
 
 Now ONLY on the XenServer that will be your primary (this will overwrite your secondary server's DRBD data; be careful!)
+
 `drbdadm -- --overwrite-data-of-peer primary drbd-sr1`
 
 Temporarily make the sync speed 1GB
+
 `drbdadm disk-options --resync-rate=1G drbd-sr1`
 
 Wait until full sync finishes
+
 `cat /proc/drbd`
 
 After Full Sync, on Both servers
+
 `chkconfig drbd on`
 
 Run on primary to create the SR
+
 `xe sr-create device-config:device="/dev/drbd1" name-label="DRBD-SR1" type=lvm`
 
 Take note of the SR UUID this outputs
@@ -251,7 +268,9 @@ We use Nagios on both servers to monitor DRBD, this is how we setup the NRPE plu
 NOTE: I wrote a wiki article a while ago explaining how to install NRPE on XCP or XenServer (same thing): http://wiki.xen.org/wiki/NagiosXCP
 
 #### Install Pacemaker on XenServer
+
 `rpm -Uvh http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm`
+
 `wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo`
 
 Installs:
@@ -260,13 +279,17 @@ Installs:
 * /usr/lib/ocf/resource.d/linbit/drbd
 
 `sed -i -e "s/enabled=0/enabled=1/" /etc/yum.repos.d/CentOS-Base.repo`
+
 `sed -i -e "s/enabled=1/enabled=0/" /etc/yum.repos.d/Citrix.repo`
+
 `yum install -y pacemaker corosync heartbeat`
 
 `chkconfig drbd off`
 
 #### Disable VM auto-shutdown
+
 This must be set on every HA VM to ensure that shutdown is handled by Pacemaker instead of the system
+
 `xe vm-param-set other-config:auto_poweroff=false uuid=$UUID`
 
 #### Setup corosync
@@ -280,7 +303,7 @@ Initial Corosync setup for both nodes
 
 Create the Corosync config on both nodes
 
-	vi /etc/corosync/corosync.conf
+`vi /etc/corosync/corosync.conf`
 
 	totem {
 	 version: 2
@@ -344,6 +367,7 @@ Set corosync to start at boot
 
 
 If you want to prefer node 1 when possible add this line:
+
 `crm configure location ms-drbd0-prefer-node1 ms-drbd0 rule 100: node1.mydomain`
 
 Setup the PBD agent
@@ -373,8 +397,10 @@ Helpful stuff
 --------------------
 
 ### Temporarily move resource from master
-crm resource migrate ms-drbd0 node2.mydomain
-crm resource unmigrate ms-drbd0
+
+`crm resource migrate ms-drbd0 node2.mydomain`
+
+`crm resource unmigrate ms-drbd0`
 
 ### Reset everything in Pacemaker
 
