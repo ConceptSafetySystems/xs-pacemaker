@@ -36,8 +36,7 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.7
 	rpm -i drbd-pacemaker-8.4.3-2.i386.rpm
 
 #### Patch XenServer 6.1.0 shutdown script
-This fixes a race condition I found because of xapi-domains shutdown that calls  /opt/xensource/libexec/shutdown
-This was shutting down VMs and then heartbeat was restarting them which caused some confusion during reboot
+This fixes a race condition I found because of xapi-domains shutdown that calls  `/opt/xensource/libexec/shutdown`. This was shutting down VMs and then heartbeat was restarting them which caused some confusion during reboot.
 
 	wget -O /opt/xensource/libexec/shutdown.patch http://download.locatrix.com/pacemaker/shutdown.patch
 	cd /opt/xensource/libexec
@@ -85,8 +84,11 @@ Create a network interface for DRBD replication
 4. Click Add IP Address
 
 	Name: DRBD
+	
 	IP: 10.0.0.3
+	
 	netmask: 255.255.255.0
+	
 	no gateway
 
 5. OK
@@ -112,6 +114,7 @@ Note PEs free on both servers, pick a common value
 Create an identical DRBD volume on both servers for storage. This is an example of what I did
 
 `lvcreate -l 53760 VG_XenStorage-de2c1846-4bf4-83a8-f74e-0bf1d2f10769 -n drdb`
+
 `lvdisplay`
 
 `vi /etc/lvm/lvm.conf`
@@ -120,12 +123,12 @@ Create an identical DRBD volume on both servers for storage. This is an example 
 
 `rm /etc/lvm/cache/.cache`
 
-`cd /etc/init.d`
-`wget http://download.locatrix.com/drbd/xenserver6.0.2/lvm`
-`chmod 0755 /etc/init.d/lvm`
-`chkconfig --add lvm`
-`chkconfig lvm on`
-`service lvm start`
+	cd /etc/init.d
+	wget http://download.locatrix.com/drbd/xenserver6.0.2/lvm
+	chmod 0755 /etc/init.d/lvm
+	chkconfig --add lvm
+	chkconfig lvm on
+	service lvm start
 
 I recommend trying a reboot now and ensure LVM comes up
 `reboot`
@@ -255,6 +258,37 @@ On the secondary server
 	xe sr-introduce uuid=$UUID name-label=DRBD-SR1 type=lvm
 	xe pbd-create sr-uuid=$UUID host-uuid=$HOSTID device-config:device=/dev/drbd1
 
+Now you can move it back to your primary (same commands below here any time you want to switch it around)
+
+Shutdown any running VMs (there shouldn't be any right now of course, but in the future maybe.
+
+	xe vm-list power-state=running
+	xe vm-shutdown vm=
+
+Unplug the PBD
+
+	PBDUUID=`xe pbd-list device-config:device=/dev/drbd1 params=uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+	echo $PBDUUID
+	xe pbd-unplug uuid=$PBDUUID
+
+Set DRBD to secondary
+
+	drbdadm secondary drbd-sr1
+	cat /proc/drbd
+
+Run on the other server to make it the primary
+
+	drbdadm primary drbd-sr1
+	cat /proc/drbd
+
+Plug-in the PBD/SR
+
+	PBDUUID=`xe pbd-list device-config:device=/dev/drbd1 params=uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+	echo $PBDUUID
+	SRUUID=`xe pbd-list device-config:device=/dev/drbd1 params=sr-uuid | awk -F: '{print $2}' | grep -v '^$' |  sed 's/^[ ]//g'`
+	echo $SRUUID
+	xe pbd-plug uuid=$PBDUUID
+
 We use Nagios on both servers to monitor DRBD, this is how we setup the NRPE plug-in
 
 	wget --no-check-certificate http://raw.github.com/anchor/nagios-plugin-drbd/master/check_drbd -O /usr/lib/nagios/plugins/check_drbd
@@ -269,22 +303,18 @@ NOTE: I wrote a wiki article a while ago explaining how to install NRPE on XCP o
 
 #### Install Pacemaker on XenServer
 
-`rpm -Uvh http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm`
-
-`wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo`
+	rpm -Uvh http://dl.fedoraproject.org/pub/epel/5/i386/epel-release-5-4.noarch.rpm
+	wget -O /etc/yum.repos.d/pacemaker.repo http://clusterlabs.org/rpm/epel-5/clusterlabs.repo
 
 Installs:
 * /usr/lib/drbd/crm-fence-peer.sh
 * /usr/lib/drbd/crm-unfence-peer.sh
 * /usr/lib/ocf/resource.d/linbit/drbd
 
-`sed -i -e "s/enabled=0/enabled=1/" /etc/yum.repos.d/CentOS-Base.repo`
-
-`sed -i -e "s/enabled=1/enabled=0/" /etc/yum.repos.d/Citrix.repo`
-
-`yum install -y pacemaker corosync heartbeat`
-
-`chkconfig drbd off`
+	sed -i -e "s/enabled=0/enabled=1/" /etc/yum.repos.d/CentOS-Base.repo
+	sed -i -e "s/enabled=1/enabled=0/" /etc/yum.repos.d/Citrix.repo
+	yum install -y pacemaker corosync heartbeat
+	chkconfig drbd off
 
 #### Disable VM auto-shutdown
 
@@ -370,7 +400,7 @@ If you want to prefer node 1 when possible add this line:
 
 `crm configure location ms-drbd0-prefer-node1 ms-drbd0 rule 100: node1.mydomain`
 
-Setup the PBD agent
+Setup the XenServerPBD agent to handle SR/PBD switch-over
 
 	crm configure
 	primitive xs_pbd ocf:locatrix:XenServerPBD params pbd_device="/dev/drbd1" debug="true" \
@@ -381,17 +411,31 @@ Setup the PBD agent
 	commit
 	bye
 
-Setup the VM agent
+Setup the VM agent for a specific VM named "dbm" in this example. Note: Yes, it's expected you'd do this individually for each VM you want controlled. The agent will automatically start/stop the VM. You have to shutdown VMs via Pacemaker, otherwise it'll just go and restart it again (and probably irritate you a lot at the time until you remember this).
 
 	crm configure
-	primitive xs_vm ocf:locatrix:XenServerVM params vm_name="dbm" debug="true" \
+	primitive xs_vm_dbm ocf:locatrix:XenServerVM params vm_name="dbm" debug="true" \
 		op monitor interval="10s" timeout="30s" \
 		op start interval="0s" timeout="120s" \
 		op stop interval="0s" timeout="240s" 
-	colocation xs_vm-with-xs_pbd inf: xs_vm xs_pbd
-	order xs_vm-after-xs_pbd inf: xs_pbd:start xs_vm:start
+	colocation xs_vm_dbm-with-xs_pbd inf: xs_vm_dbm xs_pbd
+	order xs_vm_dbm-after-xs_pbd inf: xs_pbd:start xs_vm_dbm:start
 	commit
 	bye
+
+You can shutdown a VM like this:
+	
+Get the name of the VM to shutdown
+
+`crm resource status`
+
+Now turn it off. This WILL shutdown the VM. It helps if you have the XenServer tools installed on the VM which makes graceful shutdown easier.
+
+`crm resource stop xs_vm_locatrixcom`
+
+Start it up again
+
+`crm resource start xs_vm_locatrixcom`
 
 Helpful stuff
 --------------------
