@@ -25,8 +25,8 @@ Note: The RPM must exactly match your XenServer version - otherwise you can buil
 Full Installation Instructions (DRBD+Pacemaker+Agents)
 --------------------
 
-### DRBD RPMs for XenServer 6.1.0
-NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use these DRBD RPMs.
+### Install DRBD RPMs (XenServer 6.1.0)
+NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.6.10.734.170748xen" to use these DRBD RPMs. This is the original XS 6.1 from the install CD. If you've installed hotfixes it may have updated your kernel version and you'll need to compile DRBD yourself.
 
 	wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-xen-8.4.3-2.i386.rpm
 	wget http://download.locatrix.com/drbd/xenserver6.1.0/drbd-pacemaker-8.4.3-2.i386.rpm
@@ -45,8 +45,8 @@ NOTE: This is NOT needed for XenServer 6.2.0 since the patch was added into the 
 	cp shutdown shutdown.orig
 	patch -p1 < shutdown.patch
 
-### DRBD RPMs for XenServer 6.2.0
-NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.8.0.835.170778xen" to use our DRBD RPMs.
+### Install DRBD RPMs (XenServer 6.2.0)
+NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.8.0.835.170778xen" to use our DRBD RPMs. This is the original XS 6.2 from the install CD. If you've installed hotfixes it may have updated your kernel version and you'll need to compile DRBD yourself.
 
 	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-8.4.3-2.i386.rpm
 	wget http://download.locatrix.com/drbd/xenserver6.2.0/8.4.3/drbd-bash-completion-8.4.3-2.i386.rpm
@@ -65,7 +65,61 @@ NOTE: uname -a on your XenServer must return exactly "2.6.32.43-0.4.1.xs1.8.0.83
 	rpm -i drbd-km-2.6.32.43_0.4.1.xs1.8.0.835.170778xen-8.4.3-2.i386.rpm
 	rpm -q -a | grep drbd
 
-### DRBD Setup for XenServer 6.1.0 or 6.2.0 (those are the ones I've tested)
+### Install DRBD from source (build it)
+Download the XenServer DDK:
+* http://www.citrix.com/downloads/xenserver/product-software
+* Login
+* Choose your XenServer version from the above link
+* Development Components
+* Download the "DDK (Driver Development Kit)"
+* It contains a VM image that you'll need to load up in XenServer and run
+
+Now on that VM, here's how to compile DRBD:
+
+Install the build tools
+
+`yum --enablerepo=base --disablerepo=citrix install gcc libxslt.i386 docbook-xsl`
+
+Download DRBD
+
+	mkdir /root/drbd/
+	cd /root/drbd/
+	wget http://oss.linbit.com/drbd/8.4/drbd-8.4.3.tar.gz
+	tar zxvf drbd-8.4.3.tar.gz
+	cd drbd-8.4.3
+
+I found I had to fix this path for docbook
+
+`vi documentation/Makefile.in`
+
+	STYLESHEET_PREFIX ?= /usr/share/sgml/docbook/xsl-stylesheets-1.69.1-5.1
+
+Build DRBD
+
+	./configure --prefix=/usr --localstatedir=/var --sysconfdir=/etc --with-km
+	make km-rpm
+	make rpm
+
+Create a "xenserver-kernel-ver.txt" to remember what kernel version this build works for
+
+	echo "uname -a on your XenServer needs to return exactly this kernel version number:" > xenserver-kernel-ver.txt
+	echo `uname -a` >> xenserver-kernel-ver.txt
+	ls /usr/src/redhat/RPMS/i386/drbd*
+
+Now you can copy the RPMs wherever it is that you want (e.g. to the target XenServer hosts)
+
+	scp /usr/src/redhat/RPMS/i386/drbd* user@somewhere:.
+	scp ./xenserver-kernel-ver.txt user@somewhere:.
+
+Install the RPMs on your XenServers
+
+	rpm -i drbd-utils-8.4.3-2.i386.rpm
+	rpm -i drbd-bash-completion-8.4.3-2.i386.rpm
+	rpm -i drbd-udev-8.4.3-2.i386.rpm
+	rpm -i drbd-km-XXXX.i386.rpm
+	rpm -q -a | grep drbd
+	
+### DRBD Setup
 
 I found I had DRBD bugs with OVS so I had to do this. `drbdadm primary all` kept hanging for me randomly. This changes OVS to the linux network bridge back-end. Hopefully we won't need this some day.
 
