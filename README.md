@@ -239,28 +239,9 @@ Ensure the 'on' keywords below must match what "hostname" returns on the servers
 		}
 		handlers 
 		{
-			split-brain "/usr/lib/drbd/notify-split-brain.sh"; 
+			split-brain "/usr/lib/drbd/notify-split-brain.sh my@email.com"; 
 		}
 	}
-	
-`vi /usr/lib/drbd/notify.sh`
-
-	Comment out this line at the bottom of the file:
-	#echo "$BODY" | mail -s "$SUBJECT" $RECIPIENT
-	
-	Add these lines to the bottom now:
-	HOST_UUID=`xe host-list --minimal`
-	xe message-create body="$BODY" host-uuid=$HOST_UUID name=DRBD_ALERT priority=10
-	case "$0" in
-	*split-brain.sh)
-	SUBJECT="DRBD split brain on resource $DRBD_RESOURCE"
-	BODY=" Split brain detected, Manual split brain recovery is necessary! "
-	# BODY="
-	#DRBD has detected split brain on resource $DRBD_RESOURCE
-	#between $(hostname) and $DRBD_PEER.
-	#Please rectify this immediately.
-	#Please see http://www.drbd.org/users-guide/s-resolve-split-brain.html for details on doing so."
-	;;
 
 #### Create DRBD resources
 
@@ -466,6 +447,11 @@ Live-update DRBD
 
 #### Setup Pacemaker agents
 
+Note: The Linbit DRBD agent used below is specifically designed for Master/Slave DRBD setups, that's why this works
+* http://www.drbd.org/users-guide/s-pacemaker-crm-drbd-backed-service.html
+
+Setup the DRBD agent
+
 	crm configure property stonith-enabled="false"
 	crm configure property no-quorum-policy=ignore
 	crm configure rsc_defaults resource-stickiness=100
@@ -560,6 +546,9 @@ The XenServerPBD agent actually includes an option to allow automatic use of xe-
 
 Helpful stuff
 --------------------
+
+### XenServer Upgrades and Hotfixes
+Be aware - if you upgrade XenServer or install a hotfix that updates the kernel (and a number of them do) it will break DRBD and you'll need to re-install. In particular if you perform an upgrade it'll basically wipe out all of the customizations you've done here and you'll need to re-do it. This isn't the end of the world - it just means you need to do one node at a time and rebuild it, re-install DRBD, re-sync it, then do the same to the next node. It's just time consuming. In my experience XenServer upgrades and hotfixes will not actually affect the LVM data and your DRBD volume - but I suppose I can't guarantee that.
 
 ### Temporarily move resource from master
 
