@@ -5,7 +5,20 @@ XenServer plug-ins for Pacemaker
 
 We've written a pair of plug-ins for Pacemaker to help create an automatically redundant active/passive pair of XenServers VMs using a DRBD backend.
 
-This includes two new Pacemaker resource management agents:
+WHAT THIS DOES:
+* Provides cheap/simple active/passive HA for VMs using DRBD, Pacemaker, and XenServer
+* Fail-over and switch-over will result in some downtime as the resources are moved (it's not seamless, VM shutdown/restart will occur)
+* These instructions tell you how to setup a single pair of servers
+
+REQUIREMENTS:
+* 2 standard XenServers
+* No special pre-setup or hardware requirements
+
+TODO:
+* What we're not yet doing in is setting up a separate DRBD disk for each VM - this would be a better solution than putting all the VMs on a single shared disk like we're doing here
+* XenServer metadata (VM configuration - like memory, cpu, name of the VM, etc) syncing needs to be handled in a better fashion between the two servers
+
+We have written two new Pacemaker resource management agents:
 * XenServerPBD - Monitors and controls plug-in/un-plug of the storage SR/PBD
 * XenServerVM - Monitors and controls shutdown/start-up of a VM
 
