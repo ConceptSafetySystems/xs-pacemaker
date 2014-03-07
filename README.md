@@ -182,7 +182,7 @@ Note PEs free on both servers, pick a common value
 
 Create an identical DRBD volume on both servers for storage. This is an example of what I did
 
-`lvcreate -l 53760 VG_XenStorage-de2c1846-4bf4-83a8-f74e-0bf1d2f10769 -n drdb`
+`lvcreate -l 53760 VG_XenStorage-de2c1846-4bf4-83a8-f74e-0bf1d2f10769 -n drbd`
 
 `lvdisplay`
 
@@ -226,7 +226,7 @@ Ensure the 'on' keywords below must match what "hostname" returns on the servers
 		}
 		on node2.mydomain {
 			device /dev/drbd1;
-			disk /dev/VG_XenStorage-30746c9f-2d1f-b6d5-3e3e-1eea2fab2fb1/drdb;
+			disk /dev/VG_XenStorage-30746c9f-2d1f-b6d5-3e3e-1eea2fab2fb1/drbd;
 			address 10.0.0.4:7789;
 			meta-disk internal;
 		}
